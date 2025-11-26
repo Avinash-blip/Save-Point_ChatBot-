@@ -1,7 +1,9 @@
 import { Tag } from 'antd';
+import { cn } from '@/lib/utils';
 
 interface QuickSuggestionsProps {
   onSelectSuggestion: (suggestion: string) => void;
+  className?: string;
 }
 
 const suggestions = [
@@ -13,9 +15,9 @@ const suggestions = [
   'Alert summary for last 30 days',
 ];
 
-const QuickSuggestions = ({ onSelectSuggestion }: QuickSuggestionsProps) => {
+const QuickSuggestions = ({ onSelectSuggestion, className }: QuickSuggestionsProps) => {
   return (
-    <div className="px-4 py-3 border-t border-border bg-background">
+    <div className={cn('px-4 py-3 border-t border-border bg-background', className)}>
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
         {suggestions.map((suggestion, index) => (
           <Tag

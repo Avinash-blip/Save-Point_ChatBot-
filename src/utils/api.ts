@@ -1,13 +1,18 @@
 import { ApiResponse } from '@/types/chat';
 
-export async function sendChatMessage(message: string): Promise<ApiResponse> {
+export interface ChatHistoryPayload {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export async function sendChatMessage(message: string, history: ChatHistoryPayload[] = []): Promise<ApiResponse> {
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, history }),
     });
 
     if (!response.ok) {

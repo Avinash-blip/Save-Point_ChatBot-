@@ -1,15 +1,17 @@
 import { useState, KeyboardEvent } from 'react';
 import { Input, Button } from 'antd';
 import { SendOutlined, AudioOutlined } from '@ant-design/icons';
+import { cn } from '@/lib/utils';
 
 const { TextArea } = Input;
 
 interface MessageInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  className?: string;
 }
 
-const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
+const MessageInput = ({ onSend, disabled, className }: MessageInputProps) => {
   const [message, setMessage] = useState('');
 
   const handleSend = () => {
@@ -27,7 +29,13 @@ const MessageInput = ({ onSend, disabled }: MessageInputProps) => {
   };
 
   return (
-    <div className="p-4 border-t border-border bg-background">
+    <div
+      className={cn(
+        'p-4 border-t border-border bg-background',
+        'backdrop-blur supports-[backdrop-filter]:bg-background/80',
+        className,
+      )}
+    >
       <div className="flex items-end gap-2">
         <TextArea
           value={message}

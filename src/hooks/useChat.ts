@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Chat, Message } from '@/types/chat';
 import { useLocalStorage } from './useLocalStorage';
 import { v4 as uuidv4 } from 'uuid';
+import { sendChatMessage } from '@/utils/api';
 
 export function useChat() {
   const [chats, setChats] = useLocalStorage<Chat[]>('ai-ops-chats', []);
@@ -51,7 +52,8 @@ export function useChat() {
 
       let chatId = currentChatId;
       if (!chatId) {
-        chatId = createNewChat();
+        chatId = uuidv4();
+        setCurrentChatId(chatId);
       }
 
       const userMessage: Message = {
@@ -61,8 +63,28 @@ export function useChat() {
         timestamp: new Date(),
       };
 
-      setChats((prev) =>
-        prev.map((chat) => {
+      const existingChat = chats.find((c) => c.id === chatId);
+      const pendingHistory = [...(existingChat?.messages ?? []), userMessage];
+      const historyPayload = pendingHistory
+        .slice(-6)
+        .map((message) => ({ role: message.role, content: message.content }));
+
+      setChats((prev) => {
+        const timestamp = new Date();
+        const existingIndex = prev.findIndex((chat) => chat.id === chatId);
+
+        if (existingIndex === -1) {
+          const newChat: Chat = {
+            id: chatId!,
+            title: content.substring(0, 40) + (content.length > 40 ? '...' : ''),
+            messages: [userMessage],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          };
+          return [newChat, ...prev];
+        }
+
+        return prev.map((chat) => {
           if (chat.id === chatId) {
             const updatedMessages = [...chat.messages, userMessage];
             const title =
@@ -73,26 +95,29 @@ export function useChat() {
               ...chat,
               messages: updatedMessages,
               title,
-              updatedAt: new Date(),
+              updatedAt: timestamp,
             };
           }
           return chat;
-        })
-      );
+        });
+      });
 
       setIsTyping(true);
 
-      // Simulate API call with streaming effect
-      setTimeout(() => {
-        const aiResponse = generateAIResponse(content);
+      // Call backend API
+      try {
+        const apiResponse = await sendChatMessage(content, historyPayload);
         const aiMessage: Message = {
           id: uuidv4(),
           role: 'assistant',
-          content: '',
+          content: apiResponse.summary || 'No summary returned.',
           timestamp: new Date(),
-          isStreaming: true,
+          metrics: apiResponse.metrics,
+          timeRange: apiResponse.time_range,
+          grouping: apiResponse.grouping,
+          rawAnswer: apiResponse.insight_summary || apiResponse.raw_answer,
+          rawRows: apiResponse.raw_rows,
         };
-
         setChats((prev) =>
           prev.map((chat) => {
             if (chat.id === chatId) {
@@ -105,50 +130,31 @@ export function useChat() {
             return chat;
           })
         );
-
-        // Stream the response word by word
-        const words = aiResponse.split(' ');
-        let currentIndex = 0;
-
-        const streamInterval = setInterval(() => {
-          if (currentIndex < words.length) {
-            setChats((prev) =>
-              prev.map((chat) => {
-                if (chat.id === chatId) {
-                  const messages = [...chat.messages];
-                  const lastMessage = messages[messages.length - 1];
-                  if (lastMessage.role === 'assistant') {
-                    lastMessage.content =
-                      words.slice(0, currentIndex + 1).join(' ') +
-                      (currentIndex < words.length - 1 ? ' ' : '');
-                  }
-                  return { ...chat, messages };
-                }
-                return chat;
-              })
-            );
-            currentIndex++;
-          } else {
-            clearInterval(streamInterval);
-            setIsTyping(false);
-            setChats((prev) =>
-              prev.map((chat) => {
-                if (chat.id === chatId) {
-                  const messages = [...chat.messages];
-                  const lastMessage = messages[messages.length - 1];
-                  if (lastMessage.role === 'assistant') {
-                    lastMessage.isStreaming = false;
-                  }
-                  return { ...chat, messages };
-                }
-                return chat;
-              })
-            );
-          }
-        }, 50);
-      }, 1000);
+      } catch (err) {
+        console.error('Failed to get AI response:', err);
+        const errorMessage: Message = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: 'Sorry, I could not process your request. Please try again.',
+          timestamp: new Date(),
+        };
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id === chatId) {
+              return {
+                ...chat,
+                messages: [...chat.messages, errorMessage],
+                updatedAt: new Date(),
+              };
+            }
+            return chat;
+          })
+        );
+      } finally {
+        setIsTyping(false);
+      }
     },
-    [currentChatId, createNewChat, setChats]
+    [chats, currentChatId, setChats]
   );
 
   return {
@@ -166,30 +172,30 @@ export function useChat() {
 
 function generateAIResponse(userMessage: string): string {
   const message = userMessage.toLowerCase();
-  
+
   if (message.includes('delay') || message.includes('late')) {
     return 'Based on the analytics, I found 23 delayed trips from last week. The average delay was 45 minutes, with the primary causes being traffic congestion (40%) and loading delays (35%). The Delhi-Mumbai route had the highest delay frequency.';
   }
-  
+
   if (message.includes('transporter') || message.includes('top')) {
     return 'The top transporter this month is Express Logistics with 450 completed trips and a 98.5% on-time delivery rate. They lead in both volume and reliability metrics.';
   }
-  
+
   if (message.includes('total trips') || message.includes('count')) {
     return 'Today, there are 87 active trips in progress and 156 trips completed. The total trip count for the current month is 3,420 trips across all routes.';
   }
-  
+
   if (message.includes('route deviation') || message.includes('deviation')) {
     return 'I detected 15 trips with significant route deviations this week. The most common reasons were road closures (8 trips) and weather conditions (5 trips). All drivers provided valid justifications.';
   }
-  
+
   if (message.includes('delivery time') || message.includes('average')) {
     return 'The average delivery time across all routes is 6.2 hours, which is 12% better than last month. The Chennai-Bangalore route has the best performance with an average of 4.8 hours.';
   }
-  
+
   if (message.includes('alert') || message.includes('summary')) {
     return 'In the last 30 days, there were 45 alerts generated: 18 for speed violations, 12 for extended stops, 8 for route deviations, and 7 for late arrivals. The alert rate has decreased by 15% compared to the previous month.';
   }
-  
+
   return 'I\'ve analyzed your query. The data shows normal operations across all metrics. Let me know if you need specific details about trips, transporters, routes, or any other logistics data.';
 }

@@ -1,7 +1,7 @@
 import { Chat } from '@/types/chat';
 import { List, Button, Empty, Typography, Popconfirm } from 'antd';
 import { PlusOutlined, DeleteOutlined, MessageOutlined } from '@ant-design/icons';
-import { formatDistanceToNow } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
 
 const { Text } = Typography;
 
@@ -20,10 +20,29 @@ const ChatSidebar = ({
   onNewChat,
   onDeleteChat,
 }: ChatSidebarProps) => {
+  const formatTimestamp = (date: Date) => {
+    if (isToday(date)) {
+      return `Today, ${format(date, 'h:mm a')}`;
+    }
+    if (isYesterday(date)) {
+      return `Yesterday, ${format(date, 'h:mm a')}`;
+    }
+    return format(date, 'MMM d, h:mm a');
+  };
+
+  const buildTitle = (chat: Chat) => {
+    if (chat.messages.length === 0) return 'New Conversation';
+    const firstUserMessage =
+      chat.messages.find((msg) => msg.role === 'user')?.content || chat.messages[0].content;
+    const words = firstUserMessage.split(/\s+/);
+    const truncated = words.slice(0, 12).join(' ');
+    return truncated + (words.length > 12 ? '…' : '');
+  };
+
   return (
     <div className="h-full flex flex-col bg-chat-sidebar border-r border-border">
       {/* Header */}
-      <div className="p-4 border-b border-border bg-card">
+      <div className="p-4 border-b border-border bg-card sticky top-0 z-10">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <MessageOutlined className="text-primary text-xl" />
@@ -54,20 +73,17 @@ const ChatSidebar = ({
             dataSource={chats}
             renderItem={(chat) => {
               const isActive = chat.id === currentChatId;
-              const preview =
-                chat.messages.length > 0
-                  ? chat.messages[0].content.substring(0, 60) +
-                    (chat.messages[0].content.length > 60 ? '...' : '')
-                  : 'No messages yet';
-              const timeAgo = formatDistanceToNow(new Date(chat.updatedAt), {
-                addSuffix: true,
-              });
+              const lastMessage = chat.messages.at(-1);
+              const preview = lastMessage
+                ? lastMessage.content.substring(0, 50) + (lastMessage.content.length > 50 ? '…' : '')
+                : 'No messages yet';
+              const timestamp = formatTimestamp(new Date(chat.updatedAt));
 
               return (
                 <List.Item
                   key={chat.id}
                   className={`cursor-pointer transition-all duration-200 border-b border-border hover:bg-chat-sidebar-hover group ${
-                    isActive ? 'bg-chat-sidebar-active border-l-4 border-l-primary' : ''
+                    isActive ? 'bg-white border-l-4 border-l-primary shadow-sm' : ''
                   }`}
                   onClick={() => onSelectChat(chat.id)}
                   style={{ padding: '12px 16px' }}
@@ -80,7 +96,7 @@ const ChatSidebar = ({
                           isActive ? 'text-primary' : 'text-foreground'
                         }`}
                       >
-                        {chat.title}
+                        {buildTitle(chat)}
                       </Text>
                       <Popconfirm
                         title="Delete this chat?"
@@ -107,7 +123,7 @@ const ChatSidebar = ({
                       {preview}
                     </Text>
                     <Text className="text-xs text-muted-foreground block mt-1">
-                      {timeAgo}
+                      {timestamp}
                     </Text>
                   </div>
                 </List.Item>
