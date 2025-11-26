@@ -117,6 +117,7 @@ export function useChat() {
           grouping: apiResponse.grouping,
           rawAnswer: apiResponse.insight_summary || apiResponse.raw_answer,
           rawRows: apiResponse.raw_rows,
+          chart: apiResponse.chart,
         };
         setChats((prev) =>
           prev.map((chat) => {
