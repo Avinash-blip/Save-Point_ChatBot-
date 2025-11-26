@@ -12,15 +12,23 @@ export function useChat() {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Use a ref to always have the latest chats without stale closure issues
+  const chatsRef = useRef(chats);
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
   const currentChat = chats.find((c) => c.id === currentChatId);
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [currentChat?.messages, scrollToBottom]);
+  }, [currentChat?.messages?.length, scrollToBottom]);
 
   const createNewChat = useCallback(() => {
     const newChat: Chat = {
@@ -37,45 +45,44 @@ export function useChat() {
 
   const deleteChat = useCallback(
     (chatId: string) => {
-      setChats((prev) => prev.filter((c) => c.id !== chatId));
-      if (currentChatId === chatId) {
-        const remainingChats = chats.filter((c) => c.id !== chatId);
-        setCurrentChatId(remainingChats.length > 0 ? remainingChats[0].id : null);
-      }
+      setChats((prev) => {
+        const remaining = prev.filter((c) => c.id !== chatId);
+        // Update currentChatId if we deleted the current chat
+        if (currentChatId === chatId) {
+          setTimeout(() => {
+            setCurrentChatId(remaining.length > 0 ? remaining[0].id : null);
+          }, 0);
+        }
+        return remaining;
+      });
     },
-    [chats, currentChatId, setChats]
+    [currentChatId, setChats]
   );
 
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim()) return;
 
+      // Determine or create chat ID
       let chatId = currentChatId;
-      if (!chatId) {
-        chatId = uuidv4();
-        setCurrentChatId(chatId);
-      }
-
+      const timestamp = new Date();
+      
       const userMessage: Message = {
         id: uuidv4(),
         role: 'user',
         content,
-        timestamp: new Date(),
+        timestamp,
       };
 
-      const existingChat = chats.find((c) => c.id === chatId);
-      const pendingHistory = [...(existingChat?.messages ?? []), userMessage];
-      const historyPayload = pendingHistory
-        .slice(-6)
-        .map((message) => ({ role: message.role, content: message.content }));
-
+      // Add user message immediately
       setChats((prev) => {
-        const timestamp = new Date();
-        const existingIndex = prev.findIndex((chat) => chat.id === chatId);
-
-        if (existingIndex === -1) {
+        // If no current chat, create a new one with the user message
+        if (!chatId) {
+          chatId = uuidv4();
+          // Schedule setting the current chat ID
+          setTimeout(() => setCurrentChatId(chatId!), 0);
           const newChat: Chat = {
-            id: chatId!,
+            id: chatId,
             title: content.substring(0, 40) + (content.length > 40 ? '...' : ''),
             messages: [userMessage],
             createdAt: timestamp,
@@ -84,17 +91,15 @@ export function useChat() {
           return [newChat, ...prev];
         }
 
+        // Otherwise, append to existing chat
         return prev.map((chat) => {
           if (chat.id === chatId) {
-            const updatedMessages = [...chat.messages, userMessage];
-            const title =
-              chat.messages.length === 0
-                ? content.substring(0, 40) + (content.length > 40 ? '...' : '')
-                : chat.title;
             return {
               ...chat,
-              messages: updatedMessages,
-              title,
+              messages: [...chat.messages, userMessage],
+              title: chat.messages.length === 0 
+                ? content.substring(0, 40) + (content.length > 40 ? '...' : '')
+                : chat.title,
               updatedAt: timestamp,
             };
           }
@@ -102,9 +107,15 @@ export function useChat() {
         });
       });
 
+      // Build history from the ref to get latest state
+      const currentChats = chatsRef.current;
+      const existingChat = currentChats.find((c) => c.id === chatId);
+      const historyPayload = [...(existingChat?.messages ?? []), userMessage]
+        .slice(-6)
+        .map((m) => ({ role: m.role, content: m.content }));
+
       setIsTyping(true);
 
-      // Call backend API
       try {
         const apiResponse = await sendChatMessage(content, historyPayload);
         const aiMessage: Message = {
@@ -119,9 +130,16 @@ export function useChat() {
           rawRows: apiResponse.raw_rows,
           chart: apiResponse.chart,
         };
+        
+        // Append AI response - use functional update to get latest state
         setChats((prev) =>
           prev.map((chat) => {
             if (chat.id === chatId) {
+              // Ensure we don't duplicate - check if last message is already this AI message
+              const lastMsg = chat.messages[chat.messages.length - 1];
+              if (lastMsg?.id === aiMessage.id) {
+                return chat;
+              }
               return {
                 ...chat,
                 messages: [...chat.messages, aiMessage],
@@ -155,7 +173,7 @@ export function useChat() {
         setIsTyping(false);
       }
     },
-    [chats, currentChatId, setChats]
+    [currentChatId, setChats]
   );
 
   return {

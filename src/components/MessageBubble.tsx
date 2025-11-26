@@ -1,14 +1,71 @@
+import { useState } from 'react';
 import { Message, ChartRecommendation } from '@/types/chat';
 import { Avatar, Tag, Collapse } from 'antd';
-import { UserOutlined, RobotOutlined } from '@ant-design/icons';
+import { UserOutlined, RobotOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 
 interface MessageBubbleProps {
   message: Message;
 }
 
+// Pagination constants
+const ROWS_PER_PAGE = 10;
+const CHART_ITEMS_PER_PAGE = 6;
+
 // Helper to format large numbers
 const formatNumber = (value: number) =>
   Number.isFinite(value) ? value.toLocaleString() : '0';
+
+// Chevron Pagination Controls Component
+const PaginationControls = ({ 
+  currentPage, 
+  totalPages, 
+  onPrev, 
+  onNext,
+  itemsShowing,
+  totalItems 
+}: { 
+  currentPage: number; 
+  totalPages: number; 
+  onPrev: () => void; 
+  onNext: () => void;
+  itemsShowing: string;
+  totalItems: number;
+}) => (
+  <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-t border-slate-100">
+    <span className="text-[11px] text-slate-500">
+      {itemsShowing} of {totalItems}
+    </span>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={onPrev}
+        disabled={currentPage === 0}
+        className={`p-1 rounded transition-colors ${
+          currentPage === 0 
+            ? 'text-slate-300 cursor-not-allowed' 
+            : 'text-slate-600 hover:bg-slate-200'
+        }`}
+        aria-label="Previous page"
+      >
+        <LeftOutlined className="text-xs" />
+      </button>
+      <span className="text-[11px] text-slate-500">
+        {currentPage + 1} / {totalPages}
+      </span>
+      <button
+        onClick={onNext}
+        disabled={currentPage >= totalPages - 1}
+        className={`p-1 rounded transition-colors ${
+          currentPage >= totalPages - 1 
+            ? 'text-slate-300 cursor-not-allowed' 
+            : 'text-slate-600 hover:bg-slate-200'
+        }`}
+        aria-label="Next page"
+      >
+        <RightOutlined className="text-xs" />
+      </button>
+    </div>
+  </div>
+);
 
 // Color palette for stacked segments
 const SEGMENT_COLORS: Record<string, string> = {
@@ -69,8 +126,10 @@ const MultiMetricCard = ({ row, columns }: { row: any; columns: string[] }) => (
   </div>
 );
 
-// Visual Metrics Card Component - now uses chart recommendation
+// Visual Metrics Card Component - now uses chart recommendation with pagination
 const MetricsCard = ({ rawRows, grouping, chart }: { rawRows: any[]; grouping?: string; chart?: ChartRecommendation }) => {
+  const [page, setPage] = useState(0);
+  
   if (!rawRows || rawRows.length === 0) return null;
 
   const columns = Object.keys(rawRows[0] || {});
@@ -97,17 +156,27 @@ const MetricsCard = ({ rawRows, grouping, chart }: { rawRows: any[]; grouping?: 
   
   // Filter out null entities
   const validRows = rawRows.filter(r => r[entityCol] && r[entityCol] !== 'null');
-  const topEntries = validRows.slice(0, 6);
+  
+  // Pagination logic
+  const totalPages = Math.ceil(validRows.length / CHART_ITEMS_PER_PAGE);
+  const startIdx = page * CHART_ITEMS_PER_PAGE;
+  const endIdx = Math.min(startIdx + CHART_ITEMS_PER_PAGE, validRows.length);
+  const pageEntries = validRows.slice(startIdx, endIdx);
 
   // Detect if this is a multi-metric (stacked) scenario
   const isStacked = numericCols.length > 1;
 
-  // Calculate totals
+  // Calculate totals (for all rows, not just current page)
   const rowTotals = validRows.map(r => 
     numericCols.reduce((sum, col) => sum + (Number(r[col]) || 0), 0)
   );
   const grandTotal = rowTotals.reduce((a, b) => a + b, 0);
-  const maxRowTotal = Math.max(...rowTotals.slice(0, topEntries.length), 1);
+  
+  // Max for current page (for bar scaling)
+  const pageRowTotals = pageEntries.map(r => 
+    numericCols.reduce((sum, col) => sum + (Number(r[col]) || 0), 0)
+  );
+  const maxRowTotal = Math.max(...pageRowTotals, 1);
 
   // Determine title
   const title = grouping 
@@ -137,14 +206,14 @@ const MetricsCard = ({ rawRows, grouping, chart }: { rawRows: any[]; grouping?: 
         </div>
       )}
 
-      {/* Stacked Horizontal Bars */}
-      <div className="p-4 space-y-3">
-        {topEntries.map((row, rowIdx) => {
+      {/* Stacked Horizontal Bars - Fixed height container */}
+      <div className="p-4 space-y-3 min-h-[200px]">
+        {pageEntries.map((row, rowIdx) => {
           const rowTotal = numericCols.reduce((sum, col) => sum + (Number(row[col]) || 0), 0);
           const barWidthPct = (rowTotal / maxRowTotal) * 100;
           
           return (
-            <div key={rowIdx} className="space-y-1">
+            <div key={`${page}-${rowIdx}`} className="space-y-1">
               {/* Entity name and total */}
               <div className="flex justify-between items-center">
                 <span 
@@ -188,10 +257,10 @@ const MetricsCard = ({ rawRows, grouping, chart }: { rawRows: any[]; grouping?: 
         })}
       </div>
 
-      {/* Summary cards for single-metric view */}
-      {!isStacked && topEntries.length > 0 && (
+      {/* Summary cards for single-metric view (only on first page) */}
+      {!isStacked && page === 0 && pageEntries.length > 0 && (
         <div className="px-4 pb-4 grid grid-cols-3 gap-2">
-          {topEntries.slice(0, 3).map((row, idx) => {
+          {pageEntries.slice(0, 3).map((row, idx) => {
             const value = Number(row[numericCols[0]]) || 0;
             const pct = grandTotal > 0 ? ((value / grandTotal) * 100).toFixed(1) : '0';
             return (
@@ -207,11 +276,75 @@ const MetricsCard = ({ rawRows, grouping, chart }: { rawRows: any[]; grouping?: 
         </div>
       )}
 
-      {/* Footer */}
-      {validRows.length > 6 && (
-        <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-t border-slate-100">
-          +{validRows.length - 6} more entries
-        </div>
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <PaginationControls
+          currentPage={page}
+          totalPages={totalPages}
+          onPrev={() => setPage(p => Math.max(0, p - 1))}
+          onNext={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+          itemsShowing={`${startIdx + 1}-${endIdx}`}
+          totalItems={validRows.length}
+        />
+      )}
+    </div>
+  );
+};
+
+// Paginated Raw Data Table Component
+const PaginatedRawTable = ({ rawRows }: { rawRows: any[] }) => {
+  const [page, setPage] = useState(0);
+  
+  if (!rawRows || rawRows.length === 0) return null;
+  
+  const columns = Object.keys(rawRows[0] ?? {});
+  if (columns.length === 0) {
+    return <p className="text-xs text-slate-500">No raw data available.</p>;
+  }
+  
+  const totalPages = Math.ceil(rawRows.length / ROWS_PER_PAGE);
+  const startIdx = page * ROWS_PER_PAGE;
+  const endIdx = Math.min(startIdx + ROWS_PER_PAGE, rawRows.length);
+  const pageRows = rawRows.slice(startIdx, endIdx);
+  
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      {/* Fixed height scrollable table container */}
+      <div className="overflow-x-auto max-h-[300px]">
+        <table className="min-w-full text-left text-xs">
+          <thead className="bg-slate-50 text-slate-500 uppercase tracking-wide sticky top-0">
+            <tr>
+              {columns.map((col) => (
+                <th key={col} className="px-3 py-2 whitespace-nowrap bg-slate-50">
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((row, idx) => (
+              <tr key={`${page}-${idx}`} className="border-t border-slate-100">
+                {columns.map((col) => (
+                  <td key={col} className="px-3 py-2 whitespace-nowrap text-slate-600">
+                    {row[col] !== null && row[col] !== undefined ? String(row[col]) : '—'}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <PaginationControls
+          currentPage={page}
+          totalPages={totalPages}
+          onPrev={() => setPage(p => Math.max(0, p - 1))}
+          onNext={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+          itemsShowing={`${startIdx + 1}-${endIdx}`}
+          totalItems={rawRows.length}
+        />
       )}
     </div>
   );
@@ -236,45 +369,6 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
   });
   
   const hasRawData = !isUser && (message.rawRows?.length ?? 0) > 0;
-
-  const renderRawTable = () => {
-    if (!message.rawRows || message.rawRows.length === 0) return null;
-    const columns = Object.keys(message.rawRows[0] ?? {});
-    if (columns.length === 0) {
-      return <p className="text-xs text-slate-500">No raw data available.</p>;
-    }
-    return (
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full text-left text-xs">
-          <thead className="bg-slate-50 text-slate-500 uppercase tracking-wide">
-            <tr>
-              {columns.map((col) => (
-                <th key={col} className="px-3 py-2 whitespace-nowrap">
-                  {col}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {message.rawRows.slice(0, 10).map((row, idx) => (
-              <tr key={idx} className="border-t border-slate-100">
-                {columns.map((col) => (
-                  <td key={col} className="px-3 py-2 whitespace-nowrap text-slate-600">
-                    {row[col] !== null && row[col] !== undefined ? String(row[col]) : '—'}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {message.rawRows.length > 10 && (
-          <div className="px-3 py-2 text-[11px] text-slate-400 border-t border-slate-100">
-            Showing first 10 of {message.rawRows.length} rows.
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className={`flex mb-4 w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -315,7 +409,7 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
             {showMetricsCard && (
               <MetricsCard rawRows={message.rawRows!} grouping={message.grouping} chart={message.chart} />
             )}
-            {/* Raw data in collapsible */}
+            {/* Raw data in collapsible with pagination */}
             {!isUser && hasRawData && (
               <Collapse
                 className="mt-3"
@@ -323,8 +417,8 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
                 items={[
                   {
                     key: 'raw-data',
-                    label: 'View raw data (optional)',
-                    children: renderRawTable(),
+                    label: `View raw data (${message.rawRows?.length} rows)`,
+                    children: <PaginatedRawTable rawRows={message.rawRows!} />,
                   },
                 ]}
               />
